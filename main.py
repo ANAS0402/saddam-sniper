@@ -1,74 +1,94 @@
-from flask import Flask
-from telegram import Bot
-import os
+import requests
 import threading
 import time
-import requests
+from flask import Flask
 
-app = Flask(__name__)
+# === CONFIGURATION ===
+TELEGRAM_TOKEN = '7831896600:AAG7MH7h3McjcG2ZVdkHDddzblxJABohaa0'
+TELEGRAM_CHAT_ID = '1873122742'
+WATCHLIST = ['CFX', 'PNUT', 'PYTH', 'MBOX', 'BLUR', 'JUP', 'ONE', 'AI', 'HSMTR']
+PUMP_THRESHOLD = 2.0      # % price increase
+VOLUME_THRESHOLD = 1.5    # x times volume increase
+CHECK_INTERVAL = 60       # seconds
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID")
+# === TELEGRAM ALERT FUNCTION ===
+def send_telegram_message(message):
+    try:
+        url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
+        payload = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': message,
+            'parse_mode': 'HTML'
+        }
+        response = requests.post(url, json=payload)
+        print('[✅ TELEGRAM STATUS]', response.status_code)
+        print('[📩 TELEGRAM RESPONSE]', response.text)
+    except Exception as e:
+        print('[❌ TELEGRAM ERROR]', str(e))
 
-if not BOT_TOKEN or not CHAT_ID:
-    raise ValueError("BOT_TOKEN or CHAT_ID is not set in environment")
-
-bot = Bot(token=BOT_TOKEN)
-
-# === Settings ===
-COINS = ["CFX", "PNUT", "PYTH", "MBOX", "BLUR", "JUP", "ONE", "AI", "HSMTR"]
-PUMP_THRESHOLD = 2  # % price pump threshold
-VOLUME_THRESHOLD = 1.5  # 1.5x volume
-
-previous_prices = {}
-previous_volumes = {}
-
-def analyze_coin(symbol):
-    url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT"
+# === BINANCE API DATA ===
+def fetch_binance_data(symbol):
+    url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
     try:
         response = requests.get(url)
-        data = response.json()
-
-        if "lastPrice" not in data:
-            print(f"[⚠️ INVALID DATA] {symbol}USDT: {data}")
-            return
-
-        price = float(data["lastPrice"])
-        volume = float(data["quoteVolume"])
-
-        prev_price = previous_prices.get(symbol)
-        prev_volume = previous_volumes.get(symbol)
-
-        previous_prices[symbol] = price
-        previous_volumes[symbol] = volume
-
-        if prev_price and prev_volume:
-            price_change = ((price - prev_price) / prev_price) * 100
-            volume_ratio = volume / prev_volume
-
-            if price_change >= PUMP_THRESHOLD and volume_ratio >= VOLUME_THRESHOLD:
-                alert_msg = (
-                    f"🚨 SADDAM SIGNAL: {symbol}USDT\n"
-                    f"📈 Price Pump: {price_change:.2f}%\n"
-                    f"🔥 Volume x{volume_ratio:.2f}"
-                )
-                bot.send_message(chat_id=CHAT_ID, text=alert_msg)
-                print(f"[✅ ALERT] {alert_msg}")
-
+        return response.json()
     except Exception as e:
-        print(f"[❌ ERROR] {symbol}: {e}")
+        print(f"[❌ API ERROR] {symbol}: {e}")
+        return None
 
+# === ANALYSIS LOGIC ===
+def analyze_coin(symbol):
+    data = fetch_binance_data(f"{symbol}USDT")
+    if not data or 'lastPrice' not in data:
+        print(f"[⚠️ INVALID DATA] {symbol}USDT: {data}")
+        return
+
+    try:
+        price_change = float(data['priceChangePercent'])
+        volume_change = float(data['quoteVolume']) / float(data['volume']) if float(data['volume']) != 0 else 0
+
+        print(f"[📊 ANALYSIS] {symbol}: PriceChange={price_change:.2f}%, VolumeChange={volume_change:.2f}x")
+
+        if price_change >= PUMP_THRESHOLD and volume_change >= VOLUME_THRESHOLD:
+            message = (
+                f"🚨 <b>PUMP ALERT</b>\n\n"
+                f"<b>Coin:</b> {symbol}USDT\n"
+                f"<b>Price Change:</b> {price_change:.2f}%\n"
+                f"<b>Volume Spike:</b> {volume_change:.2f}x\n"
+                f"<b>Link:</b> https://www.binance.com/en/trade/{symbol}_USDT"
+            )
+            send_telegram_message(message)
+    except Exception as e:
+        print(f"[❌ ANALYSIS ERROR] {symbol}: {e}")
+
+# === MAIN SNIPER LOOP ===
 def sniper_loop():
     while True:
-        for coin in COINS:
+        for coin in WATCHLIST:
             analyze_coin(coin.upper())
-        time.sleep(20)  # Check every 20 seconds
+            time.sleep(1)  # Avoid rate limiting
+        time.sleep(CHECK_INTERVAL)
 
-threading.Thread(target=sniper_loop, daemon=True).start()
+# === FLASK SERVER ===
+app = Flask(__name__)
 
-@app.route("/")
+@app.route('/')
 def home():
-    return "🟢 SADDAM SNIPER is running!"
+    return '🚀 Saddam Sniper Bot is running!'
+
+# === RUN EVERYTHING ===
+if __name__ == '__main__':
+    # ✅ Send boot confirmation
+    send_telegram_message("✅ Saddam Sniper Bot has started and is LIVE!")
+    
+    # 🧠 Start sniper loop in background
+    thread = threading.Thread(target=sniper_loop)
+    thread.daemon = True
+    thread.start()
+
+    # 🌐 Start Flask web server
+    app.run(host='0.0.0.0', port=3000)
+
     send_telegram_message("Test alert from Saddam sniper bot 💥")
 
 
