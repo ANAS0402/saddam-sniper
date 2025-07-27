@@ -1,7 +1,13 @@
 services:
-- type: web
-  name: saddam-sniper
-  env: python
-  plan: free
-  buildCommand: ""
-  startCommand: "python main.py"
+  - type: web
+    name: saddam-sniper
+    env: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        value: 7831896600:AAG7MH7h3McjcG2ZVdkHDddzblxJABohaa0
+      - key: CHAT_ID
+        value: 1873122742
