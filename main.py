@@ -1,89 +1,74 @@
 from flask import Flask
 from telegram import Bot
-import os, threading, time, requests
-from datetime import datetime
+import os
+import threading
+import time
+import requests
 
 app = Flask(__name__)
 
-# Load Telegram secrets
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 if not BOT_TOKEN or not CHAT_ID:
-    raise ValueError("Missing BOT_TOKEN or CHAT_ID")
+    raise ValueError("BOT_TOKEN or CHAT_ID is not set in environment")
 
 bot = Bot(token=BOT_TOKEN)
 
-# Your Binance watchlist (USDT pairs)
-WATCHLIST = ["CFX", "PNUT", "PYTH", "MBOX", "BLUR", "JUP", "ONE", "AI", "HSMTR"]
+# === Settings ===
+COINS = ["CFX", "PNUT", "PYTH", "MBOX", "BLUR", "JUP", "ONE", "AI", "HSMTR"]
+PUMP_THRESHOLD = 2  # % price pump threshold
+VOLUME_THRESHOLD = 1.5  # 1.5x volume
 
-# Binance price snapshot for last check
-last_prices = {}
-
-# Parameters
-INTERVAL_SEC = 15  # how often to check
-PUMP_THRESHOLD = 2  # alerts only on real pumps
-VOLUME_THRESHOLD = 1.5  # volume must increase by 50%
-
-def fetch_data(symbol):
-    url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT"
-    try:
-        r = requests.get(url, timeout=5)
-        return r.json()
-    except:
-        return None
+previous_prices = {}
+previous_volumes = {}
 
 def analyze_coin(symbol):
-    data = fetch_data(symbol)
-    if not data: return
+    url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT"
+    try:
+        response = requests.get(url)
+        data = response.json()
 
-    price = float(data["lastPrice"])
-    vol = float(data["quoteVolume"])
-    price_change = float(data["priceChangePercent"])
+        if "lastPrice" not in data:
+            print(f"[⚠️ INVALID DATA] {symbol}USDT: {data}")
+            return
 
-    # Baseline tracking
-    if symbol not in last_prices:
-        last_prices[symbol] = {
-            "price": price,
-            "volume": vol,
-            "ts": time.time()
-        }
-        return
+        price = float(data["lastPrice"])
+        volume = float(data["quoteVolume"])
 
-    prev = last_prices[symbol]
-    price_diff_pct = ((price - prev["price"]) / prev["price"]) * 100 if prev["price"] > 0 else 0
-    vol_ratio = vol / prev["volume"] if prev["volume"] > 0 else 1
+        prev_price = previous_prices.get(symbol)
+        prev_volume = previous_volumes.get(symbol)
 
-    if abs(price_diff_pct) >= PUMP_THRESHOLD or vol_ratio >= VOLUME_THRESHOLD:
-        ts = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
-        alert = (
-            f"🎯 SADDAM SIGNAL: {symbol}USDT\n"
-            f"💥 Price Δ: {price_diff_pct:.2f}% | Volume x{vol_ratio:.2f}\n"
-            f"📈 24h Change: {price_change:.2f}%\n"
-            f"⏰ {ts}"
-        )
-        bot.send_message(chat_id=CHAT_ID, text=alert)
-        print(alert)
+        previous_prices[symbol] = price
+        previous_volumes[symbol] = volume
 
-    # Update snapshot
-    last_prices[symbol] = {
-        "price": price,
-        "volume": vol,
-        "ts": time.time()
-    }
+        if prev_price and prev_volume:
+            price_change = ((price - prev_price) / prev_price) * 100
+            volume_ratio = volume / prev_volume
+
+            if price_change >= PUMP_THRESHOLD and volume_ratio >= VOLUME_THRESHOLD:
+                alert_msg = (
+                    f"🚨 SADDAM SIGNAL: {symbol}USDT\n"
+                    f"📈 Price Pump: {price_change:.2f}%\n"
+                    f"🔥 Volume x{volume_ratio:.2f}"
+                )
+                bot.send_message(chat_id=CHAT_ID, text=alert_msg)
+                print(f"[✅ ALERT] {alert_msg}")
+
+    except Exception as e:
+        print(f"[❌ ERROR] {symbol}: {e}")
 
 def sniper_loop():
     while True:
-        for coin in WATCHLIST:
+        for coin in COINS:
             analyze_coin(coin.upper())
-        time.sleep(INTERVAL_SEC)
+        time.sleep(20)  # Check every 20 seconds
 
-# Start sniper in background
 threading.Thread(target=sniper_loop, daemon=True).start()
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "🧠 SADDAM SNIPER is live."
+    return "🟢 SADDAM SNIPER is running!"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
