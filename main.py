@@ -69,6 +69,8 @@ threading.Thread(target=sniper_loop, daemon=True).start()
 @app.route("/")
 def home():
     return "🟢 SADDAM SNIPER is running!"
+    send_telegram_message("Test alert from Saddam sniper bot 💥")
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
